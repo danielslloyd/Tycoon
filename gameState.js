@@ -3,7 +3,9 @@ class GameState {
   constructor(settings) {
     this.settings = settings;
     this.turn = 0;
-    this.global_oil_price = settings.INITIAL_OIL_PRICE;
+    this.global_crude_price = settings.INITIAL_CRUDE_PRICE;
+    this.global_refined_price = settings.INITIAL_REFINED_PRICE;
+    this.global_oil_price = settings.INITIAL_REFINED_PRICE;  // Backward compatibility
     this.players = [];
     this.nodes = [];
     this.edges = [];
@@ -11,6 +13,7 @@ class GameState {
     this.selectedNode = null;
     this.pathfinder = null;
     this.turnHistory = [];
+    this.showFlowMap = false;  // Toggle for flow map visualization
   }
 
   // Initialize game

@@ -129,12 +129,16 @@ class Renderer {
 
   createNodes() {
     for (const node of this.gameState.nodes) {
-      // Determine node size based on type
+      // Determine node size based on type and city type
       let size = 5;
 
-      if (node.type === 'production') {
+      if (node.city_type === 'major') {
+        size = 15;  // Large for major cities
+      } else if (node.city_type === 'midsize') {
+        size = 10;  // Medium for midsize cities
+      } else if (node.type === 'production') {
         size = 3 + (node.production_capacity / this.gameState.settings.WELL_CAPACITY_MAX) * 10;
-      } else if (node.type === 'demand') {
+      } else if (node.demand_base) {
         size = 3 + (node.demand_base / 10000) * 8;
       } else if (node.type === 'terminal') {
         size = 12;
@@ -143,17 +147,21 @@ class Renderer {
       // Determine node color
       let color = 0x666666;  // Default gray
 
-      if (node.type === 'production') {
+      if (node.city_type === 'major') {
+        color = 0xffd700;  // Gold for major cities
+      } else if (node.city_type === 'midsize') {
+        color = 0xffa500;  // Orange for midsize cities
+      } else if (node.type === 'production') {
         if (node.has_well) {
           const owner = this.gameState.players[node.well_owner];
           color = parseInt(owner.color.replace('#', '0x'));
         } else {
           color = 0x555555;  // Dark gray for available production
         }
-      } else if (node.type === 'demand') {
-        color = 0x888888;  // Light gray for demand
+      } else if (node.demand_base) {
+        color = 0x888888;  // Light gray for demand nodes
       } else if (node.type === 'terminal') {
-        color = 0xffa500;  // Orange for terminals
+        color = 0x00ffff;  // Cyan for terminals
       }
 
       // Create sphere geometry
@@ -189,30 +197,42 @@ class Renderer {
 
   // Update visualization
   update() {
-    // Update edge colors and thickness based on utilization
-    for (let i = 0; i < this.gameState.edges.length; i++) {
-      const edge = this.gameState.edges[i];
-      const edgeObj = this.edgeObjects[i];
-
-      if (!edgeObj) continue;
-
-      // Update color based on pipeline ownership
-      let color = 0x444444;
-
-      if (edge.transportation.rail.available) {
-        color = 0x8b4513;
+    // Clear and recreate edges if flow map is enabled (for thickness variation)
+    if (this.gameState.showFlowMap) {
+      // Remove old edge objects
+      for (const obj of this.edgeObjects) {
+        this.scene.remove(obj);
       }
+      this.edgeObjects = [];
 
-      if (edge.transportation.pipeline.owner !== null) {
-        const owner = this.gameState.players[edge.transportation.pipeline.owner];
-        color = parseInt(owner.color.replace('#', '0x'));
+      // Recreate edges with flow-based thickness
+      this.createFlowMapEdges();
+    } else {
+      // Update edge colors based on ownership/type
+      for (let i = 0; i < this.gameState.edges.length && i < this.edgeObjects.length; i++) {
+        const edge = this.gameState.edges[i];
+        const edgeObj = this.edgeObjects[i];
 
-        // Update opacity based on utilization
-        const utilization = edge.transportation.pipeline.utilization / edge.transportation.pipeline.capacity;
-        edgeObj.material.opacity = 0.3 + utilization * 0.7;
+        if (!edgeObj) continue;
+
+        // Update color based on pipeline ownership
+        let color = 0x444444;
+
+        if (edge.transportation.rail.available) {
+          color = 0x8b4513;
+        }
+
+        if (edge.transportation.pipeline.owner !== null) {
+          const owner = this.gameState.players[edge.transportation.pipeline.owner];
+          color = parseInt(owner.color.replace('#', '0x'));
+
+          // Update opacity based on utilization
+          const utilization = edge.transportation.pipeline.utilization / edge.transportation.pipeline.capacity;
+          edgeObj.material.opacity = 0.3 + utilization * 0.7;
+        }
+
+        edgeObj.material.color.setHex(color);
       }
-
-      edgeObj.material.color.setHex(color);
     }
 
     // Update node colors
@@ -224,13 +244,19 @@ class Renderer {
 
       let color = 0x666666;
 
-      if (node.type === 'production' && node.has_well) {
+      if (node.city_type === 'major') {
+        color = 0xffd700;  // Gold for major cities
+      } else if (node.city_type === 'midsize') {
+        color = 0xffa500;  // Orange for midsize cities
+      } else if (node.type === 'production' && node.has_well) {
         const owner = this.gameState.players[node.well_owner];
         color = parseInt(owner.color.replace('#', '0x'));
       } else if (node.type === 'terminal') {
-        color = 0xffa500;
-      } else if (node.type === 'demand') {
-        color = 0x888888;
+        color = 0x00ffff;  // Cyan for terminals
+      } else if (node.demand_base) {
+        color = 0x888888;  // Gray for demand nodes
+      } else if (node.type === 'production') {
+        color = 0x555555;  // Dark gray for available production
       }
 
       // Highlight selected node
@@ -245,6 +271,117 @@ class Renderer {
       nodeObj.material.color.setHex(color);
       nodeObj.material.emissive.setHex(color);
     }
+  }
+
+  // Create flow map edges with variable thickness
+  createFlowMapEdges() {
+    // Find max flow volume for normalization
+    let maxFlow = 1;
+    for (const edge of this.gameState.edges) {
+      if (edge.flow_volume > maxFlow) {
+        maxFlow = edge.flow_volume;
+      }
+    }
+
+    for (const edge of this.gameState.edges) {
+      const nodeA = this.gameState.nodes[edge.node_a];
+      const nodeB = this.gameState.nodes[edge.node_b];
+
+      // Calculate line thickness based on flow volume
+      const flowRatio = edge.flow_volume / maxFlow;
+      const thickness = 1 + flowRatio * 8;  // 1-9 pixel thickness
+
+      // Determine color based on flow volume
+      let color, opacity;
+      if (edge.flow_volume === 0) {
+        color = 0x222222;
+        opacity = 0.2;
+      } else {
+        // Color gradient from blue (low) to red (high)
+        const hue = (1 - flowRatio) * 0.6;  // 0.6 = blue, 0 = red
+        const rgb = this.hslToRgb(hue, 1, 0.5);
+        color = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2];
+        opacity = 0.5 + flowRatio * 0.5;
+      }
+
+      // Create thick line using cylinder
+      if (thickness > 2) {
+        const direction = new THREE.Vector3(
+          nodeB.x - nodeA.x,
+          nodeB.y - nodeA.y,
+          0
+        );
+        const length = direction.length();
+        const geometry = new THREE.CylinderGeometry(thickness / 2, thickness / 2, length, 8);
+        const material = new THREE.MeshBasicMaterial({
+          color: color,
+          opacity: opacity,
+          transparent: true
+        });
+
+        const cylinder = new THREE.Mesh(geometry, material);
+
+        // Position and orient the cylinder
+        cylinder.position.set(
+          (nodeA.x + nodeB.x) / 2,
+          (nodeA.y + nodeB.y) / 2,
+          0
+        );
+
+        const axis = new THREE.Vector3(0, 1, 0);
+        cylinder.quaternion.setFromUnitVectors(axis, direction.normalize());
+
+        cylinder.userData = { type: 'edge', edgeId: edge.id };
+        this.scene.add(cylinder);
+        this.edgeObjects.push(cylinder);
+      } else {
+        // Use simple line for thin edges
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array([
+          nodeA.x, nodeA.y, 0,
+          nodeB.x, nodeB.y, 0
+        ]);
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+        const material = new THREE.LineBasicMaterial({
+          color: color,
+          linewidth: 1,
+          opacity: opacity,
+          transparent: true
+        });
+
+        const line = new THREE.Line(geometry, material);
+        line.userData = { type: 'edge', edgeId: edge.id };
+        this.scene.add(line);
+        this.edgeObjects.push(line);
+      }
+    }
+  }
+
+  // Convert HSL to RGB
+  hslToRgb(h, s, l) {
+    let r, g, b;
+
+    if (s === 0) {
+      r = g = b = l;
+    } else {
+      const hue2rgb = (p, q, t) => {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1/6) return p + (q - p) * 6 * t;
+        if (t < 1/2) return q;
+        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+        return p;
+      };
+
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      r = hue2rgb(p, q, h + 1/3);
+      g = hue2rgb(p, q, h);
+      b = hue2rgb(p, q, h - 1/3);
+    }
+
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
   }
 
   // Mouse move handler
@@ -275,11 +412,55 @@ class Renderer {
     if (this.hoveredNode !== null) {
       this.selectedNode = this.hoveredNode;
 
+      // Show node info popup
+      this.showNodePopup(this.selectedNode);
+
       // Trigger event for UI update
       if (window.game) {
         window.game.onNodeSelected(this.selectedNode);
       }
     }
+  }
+
+  // Show node information popup
+  showNodePopup(nodeId) {
+    const node = this.gameState.nodes[nodeId];
+    const popup = document.getElementById('node-info');
+    const title = document.getElementById('node-title');
+    const details = document.getElementById('node-details');
+
+    let info = '';
+
+    // City type
+    if (node.city_type === 'major') {
+      info += `<div class="stat-row"><span class="stat-label">City:</span><span class="stat-value" style="color: #ffd700">Major City</span></div>`;
+    } else if (node.city_type === 'midsize') {
+      info += `<div class="stat-row"><span class="stat-label">City:</span><span class="stat-value" style="color: #ffa500">Midsize City</span></div>`;
+    }
+
+    // Production
+    if (node.production_capacity) {
+      info += `<div class="stat-row"><span class="stat-label">Production:</span><span class="stat-value">${formatNumber(node.production_capacity)} bbl/turn</span></div>`;
+      if (node.has_well) {
+        const owner = this.gameState.players[node.well_owner];
+        info += `<div class="stat-row"><span class="stat-label">Owner:</span><span class="stat-value" style="color: ${owner.color}">${owner.name}</span></div>`;
+      }
+    }
+
+    // Demand
+    if (node.demand_base) {
+      info += `<div class="stat-row"><span class="stat-label">Demand:</span><span class="stat-value">${formatNumber(Math.floor(node.current_demand))} bbl/turn</span></div>`;
+      info += `<div class="stat-row"><span class="stat-label">Growth:</span><span class="stat-value">${(node.demand_growth_rate * 100).toFixed(1)}%</span></div>`;
+    }
+
+    // Terminal
+    if (node.is_import_terminal) {
+      info += `<div class="stat-row"><span class="stat-label">Type:</span><span class="stat-value">Import Terminal</span></div>`;
+    }
+
+    title.textContent = `Node #${nodeId}`;
+    details.innerHTML = info;
+    popup.style.display = 'block';
   }
 
   // Window resize handler
