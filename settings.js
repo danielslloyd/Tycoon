@@ -28,9 +28,14 @@ const GAME_SETTINGS = {
   PIPELINE_DEFAULT_FEE: 0.5,  // $0.50/barrel/edge (player adjustable)
 
   // Oil pricing
-  INITIAL_OIL_PRICE: 100,  // $100/barrel
+  INITIAL_CRUDE_PRICE: 70,  // $70/barrel for crude
+  INITIAL_REFINED_PRICE: 100,  // $100/barrel for refined
   PRICE_VOLATILITY: 0.02,  // ±2% per turn
   TERMINAL_FEE: 5,  // $ per barrel at import/export
+
+  // Price-driven demand parameters
+  BASE_TOTAL_DEMAND: 500000,  // Base total demand at reference price
+  REFERENCE_PRICE: 100,  // Reference price for demand calculation
 
   // Demand parameters
   DEMAND_ELASTICITY: 0.3,

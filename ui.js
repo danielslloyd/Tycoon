@@ -22,6 +22,11 @@ class UIController {
       this.toggleAutoPlay();
     });
 
+    // Flow map toggle button
+    document.getElementById('flow-map-btn').addEventListener('click', () => {
+      this.toggleFlowMap();
+    });
+
     // Reset game button
     document.getElementById('reset-game-btn').addEventListener('click', () => {
       if (confirm('Are you sure you want to reset the game?')) {
@@ -43,8 +48,10 @@ class UIController {
   updateTurnInfo() {
     document.getElementById('current-turn').textContent =
       `${this.gameState.turn} / ${this.gameState.settings.GAME_LENGTH_TURNS}`;
-    document.getElementById('oil-price').textContent =
-      `$${this.gameState.global_oil_price.toFixed(2)}`;
+    document.getElementById('crude-price').textContent =
+      `$${this.gameState.global_crude_price.toFixed(2)}`;
+    document.getElementById('refined-price').textContent =
+      `$${this.gameState.global_refined_price.toFixed(2)}`;
   }
 
   // Update players list
@@ -126,12 +133,22 @@ class UIController {
 
     let info = `<h3>Node #${nodeId}</h3>`;
 
-    // Production node info
-    if (node.type === 'production') {
+    // City type info
+    if (node.city_type === 'major') {
       info += `<div class="stat-row">
-        <span class="stat-label">Type:</span>
-        <span class="stat-value">Production</span>
+        <span class="stat-label">City Type:</span>
+        <span class="stat-value" style="color: #ffd700">Major City</span>
       </div>`;
+    } else if (node.city_type === 'midsize') {
+      info += `<div class="stat-row">
+        <span class="stat-label">City Type:</span>
+        <span class="stat-value" style="color: #ffa500">Midsize City</span>
+      </div>`;
+    }
+
+    // Production node info
+    if (node.type === 'production' || node.production_capacity) {
+      info += `<h3 style="color: #4caf50; margin-top: 15px;">Production</h3>`;
       info += `<div class="stat-row">
         <span class="stat-label">Capacity:</span>
         <span class="stat-value">${formatNumber(node.production_capacity)} bbl/turn</span>
@@ -152,6 +169,7 @@ class UIController {
 
     // Demand info
     if (node.demand_base) {
+      info += `<h3 style="color: #2196f3; margin-top: 15px;">Demand</h3>`;
       info += `<div class="stat-row">
         <span class="stat-label">Base Demand:</span>
         <span class="stat-value">${formatNumber(Math.floor(node.demand_base))} bbl/turn</span>
@@ -201,6 +219,31 @@ class UIController {
       </div>`;
     }
 
+    // Show connected edges and pipeline building options
+    info += `<h3 style="color: #9c27b0; margin-top: 15px;">Connected Edges</h3>`;
+
+    const connectedEdges = node.connections.slice(0, 5);  // Show first 5 edges
+    for (const edgeId of connectedEdges) {
+      const edge = this.gameState.edges[edgeId];
+      const otherNodeId = edge.node_a === nodeId ? edge.node_b : edge.node_a;
+
+      info += `<div class="stat-row">
+        <span class="stat-label">To Node ${otherNodeId}:</span>`;
+
+      if (edge.transportation.pipeline.owner === null) {
+        info += `<span class="stat-value" style="cursor: pointer; text-decoration: underline; color: #4caf50;" onclick="window.game.uiController.buildPipelineOnEdge(${edgeId})">Build Pipeline ($${(this.gameState.settings.PIPELINE_COST_PER_EDGE / 1000000).toFixed(1)}M)</span>`;
+      } else {
+        const owner = this.gameState.players[edge.transportation.pipeline.owner];
+        info += `<span class="stat-value" style="color: ${owner.color}">${owner.name}'s Pipeline</span>`;
+      }
+
+      info += `</div>`;
+    }
+
+    if (node.connections.length > 5) {
+      info += `<div class="stat-row"><span class="stat-label">... and ${node.connections.length - 5} more edges</span></div>`;
+    }
+
     infoContainer.innerHTML = info;
 
     // Build action buttons
@@ -230,6 +273,25 @@ class UIController {
       btn.textContent = `Upgrade Refinery ($${(cost / 1000000).toFixed(1)}M)`;
       btn.onclick = () => this.upgradeRefinery(nodeId);
       actionsContainer.appendChild(btn);
+    }
+  }
+
+  // Build pipeline on edge
+  buildPipelineOnEdge(edgeId) {
+    const result = this.gameState.buildPipeline(this.currentPlayer, edgeId);
+
+    if (result.success) {
+      this.showToast('Pipeline built successfully!');
+      this.updateUI();
+      if (window.game && window.game.renderer) {
+        window.game.renderer.update();
+      }
+      // Refresh the selected node details
+      if (this.gameState.selectedNode !== null) {
+        this.showNodeDetails(this.gameState.selectedNode);
+      }
+    } else {
+      this.showToast(result.error, true);
     }
   }
 
@@ -329,6 +391,27 @@ class UIController {
     const loading = document.getElementById('loading');
     if (loading) {
       loading.style.display = 'none';
+    }
+  }
+
+  // Toggle flow map visualization
+  toggleFlowMap() {
+    this.gameState.showFlowMap = !this.gameState.showFlowMap;
+    const btn = document.getElementById('flow-map-btn');
+
+    if (this.gameState.showFlowMap) {
+      btn.style.background = '#e94560';
+      btn.textContent = 'Hide Flow Map';
+      this.showToast('Flow map enabled - edges show oil flow volume');
+    } else {
+      btn.style.background = '#0f3460';
+      btn.textContent = 'Toggle Flow Map';
+      this.showToast('Flow map disabled');
+    }
+
+    // Update renderer
+    if (window.game && window.game.renderer) {
+      window.game.renderer.update();
     }
   }
 }

@@ -128,42 +128,27 @@ class MapGenerator {
       sortedByCenter.slice(0, numProductionNodes).map(p => p.index)
     );
 
-    // Find perimeter nodes for import terminals
+    // Find exterior nodes (top 20% by distance from center)
     const sortedByEdge = [...pointsWithDistance].sort(
       (a, b) => b.distFromCenter - a.distFromCenter
     );
 
+    const numExteriorNodes = Math.floor(points.length * 0.2);
+    const exteriorNodeIndices = new Set(
+      sortedByEdge.slice(0, numExteriorNodes).map(p => p.index)
+    );
+
+    // Select random subset of exterior nodes for import terminals
+    const exteriorNodesArray = Array.from(exteriorNodeIndices);
+    const numTerminals = Math.min(this.settings.NUM_IMPORT_TERMINALS, exteriorNodesArray.length);
     const importTerminalIndices = new Set();
-    const numTerminals = this.settings.NUM_IMPORT_TERMINALS;
-    const angleStep = (2 * Math.PI) / numTerminals;
 
-    // Distribute terminals evenly around perimeter
+    const shuffled = [...exteriorNodesArray].sort(() => Math.random() - 0.5);
     for (let i = 0; i < numTerminals; i++) {
-      const targetAngle = i * angleStep;
-      const targetX = centerX + Math.cos(targetAngle) * (this.settings.MAP_WIDTH / 2);
-      const targetY = centerY + Math.sin(targetAngle) * (this.settings.MAP_HEIGHT / 2);
-
-      // Find closest outer node to target angle
-      let closestNode = null;
-      let closestDist = Infinity;
-
-      for (const node of sortedByEdge.slice(0, 50)) {
-        if (importTerminalIndices.has(node.index)) continue;
-        const dist = Math.sqrt(
-          Math.pow(node.x - targetX, 2) + Math.pow(node.y - targetY, 2)
-        );
-        if (dist < closestDist) {
-          closestDist = dist;
-          closestNode = node;
-        }
-      }
-
-      if (closestNode) {
-        importTerminalIndices.add(closestNode.index);
-      }
+      importTerminalIndices.add(shuffled[i]);
     }
 
-    // Create nodes with properties
+    // Create nodes with basic properties first
     this.nodes = points.map((p, i) => {
       const isProduction = productionNodeIndices.has(i);
       const isTerminal = importTerminalIndices.has(i);
@@ -174,7 +159,8 @@ class MapGenerator {
         y: p.y,
         connections: [],
         buildings: {},
-        type: isTerminal ? 'terminal' : (isProduction ? 'production' : 'demand')
+        type: isTerminal ? 'terminal' : (isProduction ? 'production' : 'demand'),
+        distFromCenter: pointsWithDistance[i].distFromCenter
       };
 
       // Production node properties
@@ -200,30 +186,18 @@ class MapGenerator {
         node.well_owner = null;
       }
 
-      // Demand properties (all nodes have demand)
-      if (!isTerminal) {
-        // Exterior bias for high demand (inverse of distance from center)
-        const distanceNormalized = p.distFromCenter / Math.sqrt(
-          Math.pow(this.settings.MAP_WIDTH / 2, 2) + Math.pow(this.settings.MAP_HEIGHT / 2, 2)
-        );
-
-        const demandBase = RandomUtils.pareto(1000, 2) * (1 + distanceNormalized);
-        node.demand_base = Math.floor(demandBase);
-        node.demand_growth_rate = RandomUtils.range(
-          this.settings.DEMAND_GROWTH_MIN,
-          this.settings.DEMAND_GROWTH_MAX
-        );
-        node.current_demand = node.demand_base;
-      }
-
       // Terminal properties
       if (isTerminal) {
         node.is_import_terminal = true;
       }
 
-      // Calculated properties
+      // Calculated properties (demand will be set later)
+      node.demand_base = 0;
+      node.demand_growth_rate = 0;
+      node.current_demand = 0;
       node.local_price = 0;
       node.supply_source = null;
+      node.city_type = null;  // 'major', 'midsize', or null
 
       return node;
     });
@@ -243,31 +217,59 @@ class MapGenerator {
       this.addEdge(edgeSet, c, a);
     }
 
-    // Create edge objects
-    this.edges = Array.from(edgeSet).map((edgeKey, i) => {
+    // Create edge objects with actual lengths
+    const tempEdges = Array.from(edgeSet).map((edgeKey) => {
       const [a, b] = edgeKey.split('-').map(Number);
+      const nodeA = this.nodes[a];
+      const nodeB = this.nodes[b];
 
-      const edge = {
-        id: i,
+      const length = Math.sqrt(
+        Math.pow(nodeA.x - nodeB.x, 2) + Math.pow(nodeA.y - nodeB.y, 2)
+      );
+
+      return {
         node_a: a,
         node_b: b,
-        length: 1,  // Each edge = 1 unit distance
+        length: length
+      };
+    });
+
+    // Calculate median edge length
+    const edgeLengths = tempEdges.map(e => e.length).sort((a, b) => a - b);
+    const medianLength = edgeLengths[Math.floor(edgeLengths.length / 2)];
+    const maxLength = medianLength * 2;
+
+    console.log(`Median edge length: ${medianLength.toFixed(2)}, Max allowed: ${maxLength.toFixed(2)}`);
+
+    // Filter edges longer than 2x median
+    const filteredEdges = tempEdges.filter(e => e.length <= maxLength);
+
+    console.log(`Kept ${filteredEdges.length} of ${tempEdges.length} edges after trimming`);
+
+    // Create final edge objects
+    this.edges = filteredEdges.map((edge, i) => {
+      const edgeObj = {
+        id: i,
+        node_a: edge.node_a,
+        node_b: edge.node_b,
+        length: edge.length,
         transportation: {
           truck: { available: true, cost: this.settings.TRUCK_COST_PER_EDGE },
           rail: { available: false, cost: this.settings.RAIL_COST_PER_EDGE },
           pipeline: { owner: null, capacity: 0, fee: 0, utilization: 0 }
-        }
+        },
+        flow_volume: 0  // Track oil flow for visualization
       };
 
       // Update node connections
-      this.nodes[a].connections.push(i);
-      this.nodes[b].connections.push(i);
+      this.nodes[edge.node_a].connections.push(i);
+      this.nodes[edge.node_b].connections.push(i);
 
-      return edge;
+      return edgeObj;
     });
 
-    // Create initial rail network connecting 5 largest demand nodes
-    this.createRailNetwork();
+    // Create sophisticated demand system
+    this.createSophisticatedDemandSystem();
 
     console.log(`Created ${this.nodes.length} nodes and ${this.edges.length} edges`);
 
@@ -282,47 +284,121 @@ class MapGenerator {
     edgeSet.add(key);
   }
 
-  createRailNetwork() {
-    // Find 5 largest demand nodes
-    const demandNodes = this.nodes
-      .filter(n => n.demand_base)
-      .sort((a, b) => b.demand_base - a.demand_base)
-      .slice(0, 5);
+  createSophisticatedDemandSystem() {
+    // 1. Select 4 random exterior nodes as major cities
+    const exteriorNodes = this.nodes.filter(n =>
+      !n.is_import_terminal &&
+      n.type !== 'production' &&
+      n.distFromCenter > 0
+    ).sort((a, b) => b.distFromCenter - a.distFromCenter);
 
-    if (demandNodes.length < 2) return;
+    const topExterior = exteriorNodes.slice(0, Math.min(100, exteriorNodes.length));
+    const shuffled = [...topExterior].sort(() => Math.random() - 0.5);
+    const majorCities = shuffled.slice(0, Math.min(4, shuffled.length));
 
-    // Use pathfinding to connect them (simple BFS for now)
-    const connected = new Set([demandNodes[0].id]);
+    console.log(`Selected ${majorCities.length} major cities:`, majorCities.map(n => n.id));
 
-    while (connected.size < demandNodes.length) {
-      let bestEdges = [];
-      let shortestPath = Infinity;
+    // Mark major cities and set high demand
+    const majorCityIds = new Set();
+    for (const city of majorCities) {
+      city.city_type = 'major';
+      city.demand_base = RandomUtils.range(50000, 100000);
+      majorCityIds.add(city.id);
+    }
 
-      // Find shortest path from any connected node to any unconnected node
-      for (const connectedNode of connected) {
-        for (const targetNode of demandNodes) {
-          if (connected.has(targetNode.id)) continue;
+    // 2. Create railroads on shortest paths between all major cities
+    const railroadEdges = new Set();
+    const nodeCrossings = new Map();  // Track how many railroads cross each node
 
-          const path = this.findPath(connectedNode, targetNode.id);
-          if (path && path.length < shortestPath) {
-            shortestPath = path.length;
-            bestEdges = path;
+    for (let i = 0; i < majorCities.length; i++) {
+      for (let j = i + 1; j < majorCities.length; j++) {
+        const path = this.findPath(majorCities[i].id, majorCities[j].id);
+        if (path) {
+          // Mark edges as railroad
+          for (const edgeId of path) {
+            railroadEdges.add(edgeId);
+            this.edges[edgeId].transportation.rail.available = true;
+          }
+
+          // Track node crossings
+          const nodePath = this.getNodePath(majorCities[i].id, majorCities[j].id, path);
+          for (const nodeId of nodePath) {
+            if (!majorCityIds.has(nodeId)) {
+              nodeCrossings.set(nodeId, (nodeCrossings.get(nodeId) || 0) + 1);
+            }
           }
         }
       }
+    }
 
-      // Add rail to these edges
-      for (const edgeId of bestEdges) {
-        this.edges[edgeId].transportation.rail.available = true;
-      }
+    console.log(`Created ${railroadEdges.size} railroad edges`);
 
-      // Mark target as connected
-      if (bestEdges.length > 0) {
-        const lastEdge = this.edges[bestEdges[bestEdges.length - 1]];
-        const newNode = connected.has(lastEdge.node_a) ? lastEdge.node_b : lastEdge.node_a;
-        connected.add(newNode);
+    // 3. Identify midsize cities (nodes where railroads cross, min 2 crossings)
+    const midsizeCityIds = new Set();
+    for (const [nodeId, crossings] of nodeCrossings.entries()) {
+      if (crossings >= 2) {
+        const node = this.nodes[nodeId];
+        if (!node.is_import_terminal && node.type !== 'production') {
+          node.city_type = 'midsize';
+          node.demand_base = RandomUtils.range(20000, 40000);
+          midsizeCityIds.add(nodeId);
+        }
       }
     }
+
+    console.log(`Identified ${midsizeCityIds.size} midsize cities`);
+
+    // 4. Set demand for remaining nodes based on distance from major/midsize cities
+    const allCityNodes = [...majorCities, ...this.nodes.filter(n => midsizeCityIds.has(n.id))];
+
+    for (const node of this.nodes) {
+      // Skip if already assigned demand or is terminal/production
+      if (node.demand_base > 0 || node.is_import_terminal) continue;
+
+      // Calculate minimum distance to any major or midsize city
+      let minDist = Infinity;
+      for (const city of allCityNodes) {
+        const dist = Math.sqrt(
+          Math.pow(node.x - city.x, 2) + Math.pow(node.y - city.y, 2)
+        );
+        minDist = Math.min(minDist, dist);
+      }
+
+      // Demand decreases with distance from cities
+      // Base demand inversely proportional to distance
+      const maxDist = Math.sqrt(
+        Math.pow(this.settings.MAP_WIDTH, 2) + Math.pow(this.settings.MAP_HEIGHT, 2)
+      );
+      const distanceRatio = 1 - (minDist / maxDist);
+      const baseDemand = 1000 + distanceRatio * 15000;
+
+      node.demand_base = Math.floor(baseDemand * (0.5 + Math.random() * 0.5));
+    }
+
+    // 5. Assign growth rates to all demand nodes (-2% to +5% with jitter)
+    for (const node of this.nodes) {
+      if (node.demand_base > 0) {
+        node.demand_growth_rate = RandomUtils.range(-0.02, 0.05);
+        node.current_demand = node.demand_base;
+      }
+    }
+
+    console.log('Sophisticated demand system created');
+  }
+
+  // Get node path from edge path
+  getNodePath(startId, endId, edgePath) {
+    const nodePath = [startId];
+    let currentNode = startId;
+
+    for (const edgeId of edgePath) {
+      const edge = this.edges[edgeId];
+      const nextNode = edge.node_a === currentNode ? edge.node_b : edge.node_a;
+      nodePath.push(nextNode);
+      currentNode = nextNode;
+    }
+
+    return nodePath;
   }
 
   // Simple BFS pathfinding

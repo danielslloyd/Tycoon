@@ -28,6 +28,7 @@ class TurnResolver {
       if (edge.transportation.pipeline.owner !== null) {
         edge.transportation.pipeline.utilization = 0;
       }
+      edge.flow_volume = 0;  // Reset flow volume for visualization
     }
 
     // 1. Update global oil price (random walk)
@@ -60,15 +61,29 @@ class TurnResolver {
     console.log(`Turn ${this.gameState.turn} completed`);
   }
 
-  // Update global oil price with random walk
+  // Update global oil prices with random walk
   updateGlobalPrice() {
-    this.gameState.global_oil_price = RandomUtils.randomWalk(
-      this.gameState.global_oil_price,
+    // Update crude price
+    this.gameState.global_crude_price = RandomUtils.randomWalk(
+      this.gameState.global_crude_price,
       this.gameState.settings.PRICE_VOLATILITY
     );
+    this.gameState.global_crude_price = Math.max(30, Math.min(150, this.gameState.global_crude_price));
 
-    // Keep price in reasonable range
-    this.gameState.global_oil_price = Math.max(50, Math.min(200, this.gameState.global_oil_price));
+    // Update refined price (typically higher than crude)
+    this.gameState.global_refined_price = RandomUtils.randomWalk(
+      this.gameState.global_refined_price,
+      this.gameState.settings.PRICE_VOLATILITY
+    );
+    this.gameState.global_refined_price = Math.max(50, Math.min(200, this.gameState.global_refined_price));
+
+    // Maintain refined >= crude
+    if (this.gameState.global_refined_price < this.gameState.global_crude_price) {
+      this.gameState.global_refined_price = this.gameState.global_crude_price + 10;
+    }
+
+    // Backward compatibility
+    this.gameState.global_oil_price = this.gameState.global_refined_price;
   }
 
   // Production phase - wells produce crude oil
@@ -94,24 +109,38 @@ class TurnResolver {
     return production;
   }
 
-  // Update demand with elasticity
+  // Update demand with price-driven system
   updateDemand() {
+    const settings = this.gameState.settings;
+
+    // Calculate total demand based on global price
+    const priceRatio = settings.REFERENCE_PRICE / this.gameState.global_refined_price;
+    const totalMarketDemand = settings.BASE_TOTAL_DEMAND * Math.pow(priceRatio, settings.DEMAND_ELASTICITY);
+
+    // Calculate sum of all base demands
+    let totalBaseDemand = 0;
+    for (const node of this.gameState.nodes) {
+      if (node.demand_base) {
+        totalBaseDemand += node.demand_base;
+      }
+    }
+
+    // Distribute total demand proportionately across nodes
     for (const node of this.gameState.nodes) {
       if (node.demand_base) {
         // Calculate local price
         const localPrice = this.gameState.pathfinder.calculateLocalPrice(
           node.id,
-          this.gameState.global_oil_price,
+          this.gameState.global_refined_price,
           this.gameState.settings.TERMINAL_FEE,
           this.gameState.nodes
         );
 
         node.local_price = localPrice;
 
-        // Apply demand elasticity: demand = base_demand × (100 / price)^elasticity
-        const priceRatio = 100 / localPrice;
-        const elasticity = this.gameState.settings.DEMAND_ELASTICITY;
-        node.current_demand = node.demand_base * Math.pow(priceRatio, elasticity);
+        // Proportional share of total market demand
+        const proportion = node.demand_base / totalBaseDemand;
+        node.current_demand = totalMarketDemand * proportion;
       }
     }
   }
@@ -214,6 +243,9 @@ class TurnResolver {
     for (const edgeId of route.edges) {
       const edge = this.gameState.edges[edgeId];
 
+      // Track flow volume for visualization
+      edge.flow_volume += barrels;
+
       // Track pipeline usage and fees
       if (edge.transportation.pipeline.owner !== null) {
         edge.transportation.pipeline.utilization += barrels;
@@ -226,14 +258,14 @@ class TurnResolver {
     }
   }
 
-  // Update demand growth with fluctuations
+  // Update demand growth with fluctuations and jitter
   updateDemandGrowth() {
     for (const node of this.gameState.nodes) {
       if (node.demand_base) {
-        // Apply growth rate with random fluctuation
-        const growthRate = node.demand_growth_rate;
-        const fluctuation = (Math.random() - 0.5) * 2 * this.gameState.settings.DEMAND_FLUCTUATION;
-        const actualGrowth = growthRate + fluctuation;
+        // Apply growth rate with random jitter
+        const baseGrowthRate = node.demand_growth_rate;
+        const jitter = RandomUtils.normal(0, 0.01);  // Random jitter with mean 0, stddev 1%
+        const actualGrowth = baseGrowthRate + jitter;
 
         node.demand_base *= (1 + actualGrowth);
       }
