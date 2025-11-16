@@ -9,6 +9,7 @@ const GAME_SETTINGS = {
   NUM_NODES: 500,
   PRODUCTION_NODE_PERCENTAGE: 0.10,  // 10% are production nodes
   NUM_IMPORT_TERMINALS: 10,
+  DEMAND_NODE_PERCENTAGE: 0.25,  // 25% of nodes have demand
 
   // Build costs
   WELL_BUILD_COST: 5_000_000,  // $5M
@@ -60,7 +61,45 @@ const GAME_SETTINGS = {
     '#4caf50',  // Green
     '#2196f3',  // Blue
     '#ffa500'   // Orange
-  ]
+  ],
+
+  // Visual settings
+  VISUAL: {
+    // Background and base colors
+    BACKGROUND_COLOR: 0xF5F5DC,  // Light beige
+    DEFAULT_EDGE_COLOR: 0x555555,  // Darker gray
+    DEFAULT_NODE_COLOR: 0x666666,  // Darker gray
+    DEFAULT_RAILROAD_COLOR: 0x000000,  // Black for default railroads
+
+    // Node sizes
+    NODE_SIZE_BASE: 5,
+    NODE_SIZE_MAJOR_CITY: 15,
+    NODE_SIZE_MIDSIZE_CITY: 10,
+    NODE_SIZE_TERMINAL: 12,
+
+    // Halos
+    EDGE_NODE_HALO_COLOR: 0xFF00FF,  // Fuchsia
+    EDGE_NODE_HALO_THICKNESS: 1,
+    EDGE_NODE_HALO_SIZE_MULTIPLIER: 1.2,  // Slightly bigger than node
+    HOVER_HALO_COLOR: 0xFFFFFF,  // White
+    HOVER_HALO_THICKNESS: 2,
+    HOVER_HALO_SIZE_MULTIPLIER: 1.3,
+
+    // Edge interaction
+    EDGE_HOVER_DISTANCE_MULTIPLIER: 1.1,  // Configurable threshold for edge vs node
+
+    // Railroad/Pipeline rendering
+    RAILROAD_ZIGZAG_SEGMENTS: 20,  // Number of segments for zig-zag
+    RAILROAD_ZIGZAG_AMPLITUDE: 5,  // Amplitude of zig-zag
+    PIPELINE_LINE_WIDTH: 3,  // Bold double line width
+    PIPELINE_LINE_SPACING: 4,  // Spacing between double lines
+
+    // Flow map
+    FLOW_MAP_CRUDE_COLOR: 0x000000,  // Black for crude oil
+    FLOW_MAP_REFINED_COLOR: 0x8B4513,  // Brown for refined
+    FLOW_MAP_MIN_THICKNESS: 1,
+    FLOW_MAP_MAX_THICKNESS: 9
+  }
 };
 
 // Utility functions for random distributions

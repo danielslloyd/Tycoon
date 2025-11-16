@@ -27,6 +27,11 @@ class UIController {
       this.toggleFlowMap();
     });
 
+    // Flow mode toggle button
+    document.getElementById('flow-mode-btn').addEventListener('click', () => {
+      this.toggleFlowMode();
+    });
+
     // Reset game button
     document.getElementById('reset-game-btn').addEventListener('click', () => {
       if (confirm('Are you sure you want to reset the game?')) {
@@ -412,6 +417,17 @@ class UIController {
     // Update renderer
     if (window.game && window.game.renderer) {
       window.game.renderer.update();
+    }
+  }
+
+  // Toggle flow map mode between crude and refined
+  toggleFlowMode() {
+    if (window.game && window.game.renderer) {
+      window.game.renderer.toggleFlowMapMode();
+      const btn = document.getElementById('flow-mode-btn');
+      const mode = window.game.renderer.flowMapMode;
+      btn.textContent = `Flow Mode: ${mode.charAt(0).toUpperCase() + mode.slice(1)}`;
+      this.showToast(`Flow map mode: ${mode}`);
     }
   }
 }
