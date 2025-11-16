@@ -152,6 +152,7 @@ class MapGenerator {
     this.nodes = points.map((p, i) => {
       const isProduction = productionNodeIndices.has(i);
       const isTerminal = importTerminalIndices.has(i);
+      const isEdge = exteriorNodeIndices.has(i);
 
       let node = {
         id: i,
@@ -160,7 +161,8 @@ class MapGenerator {
         connections: [],
         buildings: {},
         type: isTerminal ? 'terminal' : (isProduction ? 'production' : 'demand'),
-        distFromCenter: pointsWithDistance[i].distFromCenter
+        distFromCenter: pointsWithDistance[i].distFromCenter,
+        isEdgeNode: isEdge  // Mark edge/exterior nodes
       };
 
       // Production node properties
@@ -348,12 +350,30 @@ class MapGenerator {
 
     console.log(`Identified ${midsizeCityIds.size} midsize cities`);
 
-    // 4. Set demand for remaining nodes based on distance from major/midsize cities
+    // 4. Set demand for remaining nodes - only 25% should have demand
     const allCityNodes = [...majorCities, ...this.nodes.filter(n => midsizeCityIds.has(n.id))];
+
+    // Get all nodes that could have demand (not terminals, not production, not already assigned)
+    const potentialDemandNodes = this.nodes.filter(n =>
+      n.demand_base === 0 && !n.is_import_terminal && n.type !== 'production'
+    );
+
+    // Calculate how many nodes should have demand (25% total, minus major/midsize cities already assigned)
+    const totalDemandNodes = Math.floor(this.nodes.length * this.settings.DEMAND_NODE_PERCENTAGE);
+    const remainingDemandSlots = Math.max(0, totalDemandNodes - majorCities.length - midsizeCityIds.size);
+
+    // Randomly select nodes to have demand
+    const shuffledPotential = [...potentialDemandNodes].sort(() => Math.random() - 0.5);
+    const selectedDemandNodes = new Set(
+      shuffledPotential.slice(0, remainingDemandSlots).map(n => n.id)
+    );
 
     for (const node of this.nodes) {
       // Skip if already assigned demand or is terminal/production
       if (node.demand_base > 0 || node.is_import_terminal) continue;
+
+      // Skip if not selected for demand
+      if (!selectedDemandNodes.has(node.id)) continue;
 
       // Calculate minimum distance to any major or midsize city
       let minDist = Infinity;
