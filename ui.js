@@ -385,6 +385,14 @@ class UIController {
     this.autoPlay = false;
     if (this.autoPlayInterval) {
       clearInterval(this.autoPlayInterval);
+      this.autoPlayInterval = null;
+    }
+
+    // Reset auto-play button appearance
+    const btn = document.getElementById('auto-play-btn');
+    if (btn) {
+      btn.textContent = 'Auto Play';
+      btn.style.background = '#0f3460';
     }
 
     const message = `Game Over!\n\nWinner: ${winner.name}\nTotal Profit: ${formatCurrency(winner.cumulative_profit)}`;

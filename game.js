@@ -198,6 +198,12 @@ window.addEventListener('DOMContentLoaded', () => {
   // Process AI players every turn
   const originalNextTurn = window.game.nextTurn.bind(window.game);
   window.game.nextTurn = function() {
+    // Don't let AI act or process turns after game is over
+    if (window.game.turnResolver.isGameOver()) {
+      originalNextTurn();
+      return;
+    }
+
     // AI players make moves (players 1-3, player 0 is human)
     for (let i = 1; i < GAME_SETTINGS.NUM_PLAYERS; i++) {
       window.game.aiPlayerAction(i);

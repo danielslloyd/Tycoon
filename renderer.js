@@ -16,6 +16,7 @@ class Renderer {
     this.raycaster = new THREE.Raycaster();
     this.mouse = new THREE.Vector2();
     this.flowMapMode = 'crude';  // 'crude' or 'refined'
+    this._flowMapWasActive = false;
 
     this.init();
   }
@@ -346,31 +347,42 @@ class Renderer {
 
       // Recreate edges with flow-based thickness
       this.createFlowMapEdges();
+      this._flowMapWasActive = true;
     } else {
-      // Update edge colors based on ownership/type
-      for (let i = 0; i < this.gameState.edges.length && i < this.edgeObjects.length; i++) {
-        const edge = this.gameState.edges[i];
-        const edgeObj = this.edgeObjects[i];
-
-        if (!edgeObj) continue;
-
-        // Update color based on pipeline ownership
-        let color = 0x444444;
-
-        if (edge.transportation.rail.available) {
-          color = 0x8b4513;
+      if (this._flowMapWasActive) {
+        // Flow map was just disabled - remove flow map edges and restore original edges
+        for (const obj of this.edgeObjects) {
+          this.scene.remove(obj);
         }
+        this.edgeObjects = [];
+        this.createEdges();
+        this._flowMapWasActive = false;
+      } else {
+        // Update edge colors based on ownership/type
+        for (let i = 0; i < this.gameState.edges.length && i < this.edgeObjects.length; i++) {
+          const edge = this.gameState.edges[i];
+          const edgeObj = this.edgeObjects[i];
 
-        if (edge.transportation.pipeline.owner !== null) {
-          const owner = this.gameState.players[edge.transportation.pipeline.owner];
-          color = parseInt(owner.color.replace('#', '0x'));
+          if (!edgeObj) continue;
 
-          // Update opacity based on utilization
-          const utilization = edge.transportation.pipeline.utilization / edge.transportation.pipeline.capacity;
-          edgeObj.material.opacity = 0.3 + utilization * 0.7;
+          // Update color based on pipeline ownership
+          let color = 0x444444;
+
+          if (edge.transportation.rail.available) {
+            color = 0x8b4513;
+          }
+
+          if (edge.transportation.pipeline.owner !== null) {
+            const owner = this.gameState.players[edge.transportation.pipeline.owner];
+            color = parseInt(owner.color.replace('#', '0x'));
+
+            // Update opacity based on utilization
+            const utilization = edge.transportation.pipeline.utilization / edge.transportation.pipeline.capacity;
+            edgeObj.material.opacity = 0.3 + utilization * 0.7;
+          }
+
+          edgeObj.material.color.setHex(color);
         }
-
-        edgeObj.material.color.setHex(color);
       }
     }
 
