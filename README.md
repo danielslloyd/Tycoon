@@ -1,152 +1,92 @@
 # Oil & Gas Tycoon
 
-A turn-based economic strategy game where 4 players compete to build oil extraction, refining, and distribution networks. The player with the most profit after 150 turns wins!
+A turn-based strategy game about the **geo-spatial and supply-demand reasoning** of the
+oil industry: find cheap crude, get it refined, and move it to the towns that pay —
+cheaper than the world market can ship it in.
 
-## Game Overview
+No build step, no dependencies to install: **open `index.html` in a browser and play.**
+(Everything, including the Delaunay library, is vendored locally.)
 
-Build an oil empire by:
-- **Building Wells** on production nodes to extract crude oil
-- **Constructing Refineries** to process crude into refined products
-- **Laying Pipelines** for efficient transportation
-- **Managing Infrastructure** to maximize profits
+## The one idea that matters
 
-## How to Play
+Every city buys from its cheapest suppliers, and the **local price equals the cost of the
+most expensive supply actually used** (the marginal barrel). Imported fuel — world price +
+terminal fee + transport — is always available, so it sets the ceiling everywhere. If you
+can deliver fuel *under* that ceiling (good field + short route + your own refinery), you
+pocket the difference on every barrel. Geography is the whole game.
 
-### Starting the Game
+## How to play
 
-1. Open `index.html` in a web browser
-2. The game will automatically generate a map with 500 nodes
-3. You are Player 1 (red), competing against 3 AI players
+- **Goal**: highest cumulative profit when the turns run out (default 150).
+- **Click** any node or edge to inspect it and build; **Space** or *Next turn* resolves a turn.
+- **Oil fields** (triangles): drill a well. Bigger fields pump cheaper.
+- **Refineries** (square badge): turn crude into fuel; charge everyone else your fee.
+- **Pipelines** (double lines): cheapest transport, but cost money to lay and have
+  **limited capacity** — when one runs full, overflow moves by truck and you'll see it
+  in the *Congestion* overlay. Everyone (you included) pays the posted toll.
+- **Tank farms**: buy fuel automatically when the world price dips, release it when the
+  local market beats their cost basis — hands-free buy-low/sell-high.
+- **Terminals** (blue squares): the world market. It undercuts you near the coast and
+  buys your surplus (exports) at world price − fee.
+- Overlays (top right): **Prices** heatmap, **Flows** (crude vs fuel, width = volume),
+  **Congestion** (pipe utilization). Hover any demand node and open *"Why this price?"*
+  in the inspector for the full cost stack of the marginal barrel.
 
-### Controls
+## Tuning menu (⚙)
 
-- **Click on nodes** to select them and view details
-- **Next Turn** button: Process one turn
-- **Auto Play** button: Automatically advance turns
-- **Space bar**: Quick shortcut to advance turn
-- **Reset Game**: Start a new game
+Every dollar value in the game is a slider — nothing is hardcoded. This is a
+balancing sandbox by design:
 
-### Building Infrastructure
+- **Live values** (costs, fees, capacities, market behavior) apply at the start of the
+  next turn — no restart.
+- **"new game" badged values** (map shape, starting cash, player count) apply when you
+  press *Regenerate map / start new game*.
+- Settings persist in `localStorage`, and **Export/Import JSON** lets you save and share
+  balance presets. *Reset all* returns to the defaults in `js/config.js`.
 
-When you select a node, you can:
-
-1. **Build a Well** (Production nodes only)
-   - Cost: $5M
-   - Produces crude oil each turn
-   - Operating cost varies by node ($20-60/barrel)
-
-2. **Build a Refinery** (Any node)
-   - Cost: $10M
-   - Processes crude into refined products
-   - Can be upgraded to double capacity ($6M)
-
-3. **Build Pipelines** (On edges between nodes)
-   - Cost: $1M per edge
-   - Lower transportation costs than trucks/rail
-
-### Game Mechanics
-
-#### Transportation
-- **Trucks**: Available everywhere, $3/barrel/edge
-- **Rail**: Connects 5 largest cities, $1/barrel/edge
-- **Pipelines**: Player-built, ~$0.50/barrel/edge (adjustable)
-
-#### Economics
-- **Global Oil Price**: Starts at $100/barrel, fluctuates ±2% per turn
-- **Demand Elasticity**: Higher prices reduce demand
-- **Demand Growth**: Each node grows 0.5-3% per turn
-- **Local Prices**: Import cost + transportation cost
-
-#### Revenue Sources
-- Selling refined products to demand nodes
-- Pipeline fees (when other players use your pipelines)
-- Refinery fees (when other players use your refineries)
-
-#### Strategy Tips
-1. **Early Game**: Build wells on high-capacity, low-cost nodes
-2. **Mid Game**: Construct refineries near production clusters
-3. **Late Game**: Build pipelines for long-term cost savings
-4. **Always**: Watch your cash flow and competitor movements
-
-## File Structure
+## Development
 
 ```
-├── index.html          # Main HTML file
-├── settings.js         # Game configuration parameters
-├── mapGenerator.js     # Poisson disk sampling + Delaunay triangulation
-├── gameState.js        # State management
-├── pathfinding.js      # Floyd-Warshall pathfinding algorithm
-├── turnResolver.js     # Turn simulation logic
-├── renderer.js         # Three.js visualization
-├── ui.js              # UI controls and dashboards
-├── game.js            # Main game controller
-└── README.md          # This file
+index.html, styles.css     shell + styling (classic script tags, works from file://)
+vendor/delaunator.min.js   vendored triangulation (MIT)
+js/config.js               CONFIG_SCHEMA — single source of truth for every tunable
+js/mapGenerator.js         Poisson disk → Delaunay → cities, rail, fields, terminals
+js/gameState.js            game creation + validated build/fee actions
+js/pathfinding.js          binary-heap Dijkstra + route cache
+js/market.js               capacity-constrained market clearing (the core)
+js/turnEngine.js           turn orchestration + invariant checker
+js/ai.js                   AI opponents (0–3, tunable)
+js/camera.js, renderer.js  pan/zoom camera + two-layer canvas renderer & overlays
+js/charts.js               sidebar line charts / sparklines
+js/tuningMenu.js           slider drawer generated from CONFIG_SCHEMA
+js/ui.js, onboarding.js    panels, inspector, route builder, legend, hints
+js/main.js                 bootstrap + window.debug API
 ```
 
-## Technical Details
+### Headless simulation & tests
 
-### Map Generation
-- **Poisson Disk Sampling**: Evenly distributes 500 nodes
-- **Delaunay Triangulation**: Creates realistic edge connections
-- **Node Types**:
-  - Production nodes (10%): Interior bias, lognormal capacity distribution
-  - Demand nodes (all nodes): Exterior bias, Pareto distribution
-  - Import terminals (10): Evenly spaced around perimeter
+The simulation runs in Node with no browser:
 
-### Pathfinding
-- **Floyd-Warshall Algorithm**: Computes all-pairs shortest paths
-- Recomputed when new infrastructure is built
-- Considers all transportation options (truck/rail/pipeline)
+```bash
+node tools/headless.js --seed 42 --turns 150            # full game, invariant checks
+node tools/headless.js --seed 7 --ai 0 --set truckCostPerEdge=5
+NODE_PATH=/opt/node22/lib/node_modules node tools/e2e.js  # Playwright UI test
+tools/screenshot.sh out.png "seed=42&turns=40&overlay=flow"
+```
 
-### Turn Resolution
-1. Update global oil price (random walk)
-2. Wells produce crude oil
-3. Calculate demand with price elasticity
-4. Route production through refineries to demand
-5. Apply demand growth rates
-6. Calculate player profits
-7. Update market statistics
+Invariants checked every turn: barrel conservation, capacity limits, cash ledger
+(cash − starting capital = cumulative profit), local price ≤ import parity, no NaNs.
+The same checks are available in the browser console: `debug.verify()`, plus
+`debug.runTurns(n)` and `debug.dump()`.
 
-## Technologies Used
+### Market model (summary)
 
-- **Three.js**: 3D visualization engine
-- **d3-delaunay**: Delaunay triangulation library
-- **Vanilla JavaScript**: Core game logic
-- **HTML5 Canvas**: Rendering
-
-## Game Balance
-
-### Victory Paths
-1. **Production Mogul**: Build many wells, maximize output
-2. **Infrastructure Baron**: Build pipelines/refineries, earn fees
-3. **Integrated Giant**: Vertical integration from well to customer
-4. **Opportunist**: Exploit market inefficiencies
-
-### Starting Capital
-Each player starts with $50M cash
-
-### Game Length
-150 turns (can be adjusted in settings.js)
-
-## Customization
-
-Edit `settings.js` to modify:
-- Number of nodes
-- Build costs
-- Operating costs
-- Transportation costs
-- Oil price volatility
-- Demand parameters
-- Game length
-
-## Browser Requirements
-
-- Modern browser with WebGL support
-- Recommended: Chrome, Firefox, Safari, Edge
-- Internet connection (for CDN libraries)
-
-## Credits
-
-Based on the Oil & Gas Tycoon game design specification.
-
-Enjoy building your oil empire!
+Per turn: world price random-walks (clamped) → demand per town follows lagged
+elasticity `base × (refPrice/lastLocalPrice)^ε` → all supply offers
+(well→refinery→town chains, imports, storage releases) are sorted by delivered cost
+and filled cheapest-first against well/refinery/pipeline capacities. Saturated pipes
+freeze and the next round reprices them at truck/rail rates, so congestion is a visible
+cost step. Local price = the most expensive offer used; every supplier at that town is
+paid it. Then profitable exports, then storage charging while prices are low.
+Tariffs are posted: every barrel pays the pipeline toll and refinery fee regardless of
+owner (payments to yourself cancel out).
